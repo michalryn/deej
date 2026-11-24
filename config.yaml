@@ -25,3 +25,8 @@ baud_rate: 9600
 # adjust the amount of signal noise reduction depending on your hardware quality
 # supported values are "low" (excellent hardware), "default" (regular hardware) or "high" (bad, noisy hardware)
 noise_reduction: default
+
+# show an on-screen volume indicator (like the Windows volume flyout) when a slider moves
+volume_osd: true
+# how long the indicator stays visible after the last change, in milliseconds
+volume_osd_duration_ms: 1500

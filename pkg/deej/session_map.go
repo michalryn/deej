@@ -23,6 +23,9 @@ type sessionMap struct {
 
 	lastSessionRefresh time.Time
 	unmappedSessions   []Session
+
+	// sliders that already reported their initial value (used to avoid showing the OSD on startup)
+	osdSeenSliders map[int]bool
 }
 
 const (
@@ -257,6 +260,8 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 		}
 	}
 
+	m.showVolumeOSD(event, targets)
+
 	// if we still haven't found a target or the volume adjustment failed, maybe look for the target again.
 	// processes could've opened since the last time this slider moved.
 	// if they haven't, the cooldown will take care to not spam it up
@@ -269,6 +274,63 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 		// (or another, more catastrophic failure happens)
 		m.refreshSessions(true)
 	}
+}
+
+func (m *sessionMap) showVolumeOSD(event SliderMoveEvent, targets []string) {
+	if m.osdSeenSliders == nil {
+		m.osdSeenSliders = map[int]bool{}
+	}
+
+	// the first value received for each slider is just its initial position, not a user action
+	if !m.osdSeenSliders[event.SliderID] {
+		m.osdSeenSliders[event.SliderID] = true
+		return
+	}
+
+	if !m.deej.config.VolumeOSD || m.deej.osd == nil {
+		return
+	}
+
+	names := []string{}
+	for _, target := range targets {
+		names = append(names, m.friendlyTargetName(target))
+	}
+
+	m.deej.osd.Show(strings.Join(funk.UniqString(names), ", "), event.PercentValue, m.deej.config.VolumeOSDDuration)
+}
+
+// turns a config target (e.g. "chrome.exe", "master", "deej.current") into a readable label
+func (m *sessionMap) friendlyTargetName(target string) string {
+	lower := strings.ToLower(target)
+
+	switch lower {
+	case masterSessionName:
+		return "Głośność główna"
+	case systemSessionName:
+		return "Dźwięki systemowe"
+	case inputSessionName:
+		return "Mikrofon"
+	case specialTargetTransformPrefix + specialTargetAllUnmapped:
+		return "Pozostałe aplikacje"
+	case specialTargetTransformPrefix + specialTargetCurrentWindow:
+		resolved := m.resolveTarget(lower)
+		if len(resolved) == 0 {
+			return "Aktywne okno"
+		}
+		return "Aktywne okno: " + m.friendlyTargetName(resolved[0])
+	}
+
+	// device names (e.g. "Speakers (Realtek Audio)") are already readable
+	if deviceSessionKeyPattern.MatchString(target) {
+		return target
+	}
+
+	name := strings.TrimSuffix(lower, ".exe")
+	if name == "" {
+		return target
+	}
+
+	return strings.ToUpper(name[:1]) + name[1:]
 }
 
 func (m *sessionMap) targetHasSpecialTransform(target string) bool {

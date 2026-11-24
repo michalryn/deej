@@ -25,6 +25,7 @@ type Deej struct {
 	config   *CanonicalConfig
 	serial   *SerialIO
 	sessions *sessionMap
+	osd      *volumeOSD
 
 	stopChannel chan bool
 	version     string
@@ -53,6 +54,7 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool) (*Deej, error) {
 		config:      config,
 		stopChannel: make(chan bool),
 		verbose:     verbose,
+		osd:         newVolumeOSD(logger),
 	}
 
 	serial, err := NewSerialIO(d, logger)
@@ -97,6 +99,9 @@ func (d *Deej) Initialize() error {
 		d.logger.Errorw("Failed to initialize session map", "error", err)
 		return fmt.Errorf("init session map: %w", err)
 	}
+
+	// start the on-screen volume indicator window
+	d.osd.start()
 
 	// decide whether to run with/without tray
 	if _, noTraySet := os.LookupEnv(envNoTray); noTraySet {

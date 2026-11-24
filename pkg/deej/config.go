@@ -27,6 +27,9 @@ type CanonicalConfig struct {
 
 	NoiseReductionLevel string
 
+	VolumeOSD         bool
+	VolumeOSDDuration int
+
 	logger             *zap.SugaredLogger
 	notifier           Notifier
 	stopWatcherChannel chan bool
@@ -53,6 +56,8 @@ const (
 	configKeyCOMPort             = "com_port"
 	configKeyBaudRate            = "baud_rate"
 	configKeyNoiseReductionLevel = "noise_reduction"
+	configKeyVolumeOSD           = "volume_osd"
+	configKeyVolumeOSDDuration   = "volume_osd_duration_ms"
 
 	defaultCOMPort  = "COM4"
 	defaultBaudRate = 9600
@@ -89,6 +94,8 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 	userConfig.SetDefault(configKeyInvertSliders, false)
 	userConfig.SetDefault(configKeyCOMPort, defaultCOMPort)
 	userConfig.SetDefault(configKeyBaudRate, defaultBaudRate)
+	userConfig.SetDefault(configKeyVolumeOSD, true)
+	userConfig.SetDefault(configKeyVolumeOSDDuration, 1500)
 
 	internalConfig := viper.New()
 	internalConfig.SetConfigName(internalConfigName)
@@ -238,6 +245,12 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 
 	cc.InvertSliders = cc.userConfig.GetBool(configKeyInvertSliders)
 	cc.NoiseReductionLevel = cc.userConfig.GetString(configKeyNoiseReductionLevel)
+
+	cc.VolumeOSD = cc.userConfig.GetBool(configKeyVolumeOSD)
+	cc.VolumeOSDDuration = cc.userConfig.GetInt(configKeyVolumeOSDDuration)
+	if cc.VolumeOSDDuration <= 0 {
+		cc.VolumeOSDDuration = 1500
+	}
 
 	cc.logger.Debug("Populated config fields from vipers")
 
