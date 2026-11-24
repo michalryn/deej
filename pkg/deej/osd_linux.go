@@ -10,4 +10,4 @@ func newVolumeOSD(logger *zap.SugaredLogger) *volumeOSD { return &volumeOSD{} }
 func (o *volumeOSD) start() {}
 
 // Show is a no-op on Linux
-func (o *volumeOSD) Show(label string, value float32, durationMs int) {}
+func (o *volumeOSD) Show(label string, value float32, durationMs int, pid uint32) {}

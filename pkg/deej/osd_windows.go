@@ -86,6 +86,7 @@ const (
 	osdBaseWidth        = 320
 	osdBaseHeight       = 64
 	osdBaseBottomMargin = 24
+	osdIconSize         = 24
 )
 
 type osdRect struct{ Left, Top, Right, Bottom int32 }
@@ -138,9 +139,14 @@ type volumeOSD struct {
 	label    string
 	value    float32
 	duration uint32
+	pid      uint32
 
-	hwnd  uintptr
-	scale float64
+	// only touched on the OSD window thread
+	theme osdTheme
+	icon  uintptr
+
+	hwnd   uintptr
+	scale  float64
 	width  int32
 	height int32
 }
@@ -160,8 +166,10 @@ func (o *volumeOSD) start() {
 }
 
 // Show displays (or refreshes) the indicator with the given label and 0..1 volume value
-func (o *volumeOSD) Show(label string, value float32, durationMs int) {
+// pid is the process whose icon should be displayed (0 shows a speaker glyph instead)
+func (o *volumeOSD) Show(label string, value float32, durationMs int, pid uint32) {
 	o.lock.Lock()
+	o.pid = pid
 	o.label = label
 	o.value = value
 	o.duration = uint32(durationMs)
@@ -226,11 +234,14 @@ func osdWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 
 	switch msg {
 	case osdWmApp:
-		o.reposition(hwnd)
-		procInvalidateRect.Call(hwnd, 0, 0)
 		o.lock.Lock()
-		duration := o.duration
+		duration, pid := o.duration, o.pid
 		o.lock.Unlock()
+
+		o.reposition(hwnd)
+		o.theme = currentOSDTheme()
+		o.icon = osdIconForProcess(pid, int32(osdIconSize*o.scale))
+		procInvalidateRect.Call(hwnd, 0, 0)
 		procSetTimer.Call(hwnd, osdHideTimerID, uintptr(duration), 0)
 		return 0
 
@@ -330,9 +341,20 @@ func (o *volumeOSD) paint(hwnd uintptr) {
 	bmp, _, _ := procCreateCompatibleBitmap.Call(hdc, uintptr(w), uintptr(h))
 	oldBmp, _, _ := procSelectObject.Call(mem, bmp)
 
-	osdFill(mem, osdRect{0, 0, w, h}, rgb(32, 32, 32), 0)
+	theme := o.theme
+
+	osdFill(mem, osdRect{0, 0, w, h}, theme.background, 0)
+
+	// 1px border following the rounded window shape, like Windows 11 flyouts
+	radius := uintptr(16 * s)
+	borderRgn, _, _ := procCreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(h+1), radius, radius)
+	borderBrush, _, _ := procCreateSolidBrush.Call(theme.border)
+	procFrameRgn.Call(mem, borderRgn, borderBrush, 1, 1)
+	procDeleteObject.Call(borderBrush)
+	procDeleteObject.Call(borderRgn)
+
 	procSetBkMode.Call(mem, osdTransparentBk)
-	procSetTextColor.Call(mem, rgb(255, 255, 255))
+	procSetTextColor.Call(mem, theme.value)
 
 	// speaker glyph from Segoe MDL2 Assets, picked by volume level
 	glyph := ""
@@ -347,12 +369,18 @@ func (o *volumeOSD) paint(hwnd uintptr) {
 
 	iconFont := osdFont("Segoe MDL2 Assets", 20*s, 400)
 	oldFont, _, _ := procSelectObject.Call(mem, iconFont)
-	osdDrawText(mem, glyph, osdRect{px(18), 0, px(50), h}, osdDtLeft|osdDtVCenter|osdDtSingleLine)
+	if o.icon != 0 {
+		// app icon instead of the speaker glyph
+		size := px(osdIconSize)
+		procDrawIconEx.Call(mem, uintptr(px(16)), uintptr((h-size)/2), o.icon, uintptr(size), uintptr(size), 0, 0, osdDiNormal)
+	} else {
+		osdDrawText(mem, glyph, osdRect{px(18), 0, px(50), h}, osdDtLeft|osdDtVCenter|osdDtSingleLine)
+	}
 
 	// slider name
 	labelFont := osdFont("Segoe UI", 13*s, 400)
 	procSelectObject.Call(mem, labelFont)
-	procSetTextColor.Call(mem, rgb(200, 200, 200))
+	procSetTextColor.Call(mem, theme.label)
 	osdDrawText(mem, label, osdRect{px(56), px(10), w - px(64), px(32)},
 		osdDtLeft|osdDtVCenter|osdDtSingleLine|osdDtEndEllipsis|osdDtNoPrefix)
 
@@ -360,17 +388,17 @@ func (o *volumeOSD) paint(hwnd uintptr) {
 	percent := int(value*100 + 0.5)
 	valueFont := osdFont("Segoe UI Semibold", 17*s, 600)
 	procSelectObject.Call(mem, valueFont)
-	procSetTextColor.Call(mem, rgb(255, 255, 255))
+	procSetTextColor.Call(mem, theme.value)
 	osdDrawText(mem, strconv.Itoa(percent), osdRect{w - px(62), 0, w - px(18), h},
 		osdDtRight|osdDtVCenter|osdDtSingleLine)
 
 	// bar
 	barLeft, barRight := px(56), w-px(72)
 	barTop, barBottom := px(39), px(43)
-	osdFill(mem, osdRect{barLeft, barTop, barRight, barBottom}, rgb(90, 90, 90), px(4))
+	osdFill(mem, osdRect{barLeft, barTop, barRight, barBottom}, theme.track, px(4))
 	fillRight := barLeft + int32(float64(barRight-barLeft)*float64(value))
 	if fillRight > barLeft {
-		osdFill(mem, osdRect{barLeft, barTop, fillRight, barBottom}, rgb(76, 194, 255), px(4))
+		osdFill(mem, osdRect{barLeft, barTop, fillRight, barBottom}, theme.fill, px(4))
 	}
 
 	procBitBlt.Call(hdc, 0, 0, uintptr(w), uintptr(h), mem, 0, 0, osdSrcCopy)

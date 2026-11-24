@@ -226,6 +226,9 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 	}
 
 	targetFound := false
+
+	// process owning the first matched app session - its icon is shown in the OSD
+	var osdPID uint32
 	adjustmentFailed := false
 
 	// for each possible target for this slider...
@@ -250,6 +253,10 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 
 			// iterate all matching sessions and adjust the volume of each one
 			for _, session := range sessions {
+				if p, ok := session.(interface{ ProcessID() uint32 }); ok && osdPID == 0 {
+					osdPID = p.ProcessID()
+				}
+
 				if session.GetVolume() != event.PercentValue {
 					if err := session.SetVolume(event.PercentValue); err != nil {
 						m.logger.Warnw("Failed to set target session volume", "error", err)
@@ -260,7 +267,7 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 		}
 	}
 
-	m.showVolumeOSD(event, targets)
+	m.showVolumeOSD(event, targets, osdPID)
 
 	// if we still haven't found a target or the volume adjustment failed, maybe look for the target again.
 	// processes could've opened since the last time this slider moved.
@@ -276,7 +283,7 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 	}
 }
 
-func (m *sessionMap) showVolumeOSD(event SliderMoveEvent, targets []string) {
+func (m *sessionMap) showVolumeOSD(event SliderMoveEvent, targets []string, pid uint32) {
 	if m.osdSeenSliders == nil {
 		m.osdSeenSliders = map[int]bool{}
 	}
@@ -296,7 +303,7 @@ func (m *sessionMap) showVolumeOSD(event SliderMoveEvent, targets []string) {
 		names = append(names, m.friendlyTargetName(target))
 	}
 
-	m.deej.osd.Show(strings.Join(funk.UniqString(names), ", "), event.PercentValue, m.deej.config.VolumeOSDDuration)
+	m.deej.osd.Show(strings.Join(funk.UniqString(names), ", "), event.PercentValue, m.deej.config.VolumeOSDDuration, pid)
 }
 
 // turns a config target (e.g. "chrome.exe", "master", "deej.current") into a readable label

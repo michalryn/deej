@@ -109,6 +109,11 @@ func newMasterSession(
 	return s, nil
 }
 
+// ProcessID returns the ID of the process owning this audio session (0 for system sounds)
+func (s *wcaSession) ProcessID() uint32 {
+	return s.pid
+}
+
 func (s *wcaSession) GetVolume() float32 {
 	var level float32
 
